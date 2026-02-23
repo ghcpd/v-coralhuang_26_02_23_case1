@@ -1,0 +1,124 @@
+gateways:
+
+  inttest_duckdb:
+    connection:
+      type: duckdb
+      catalogs:
+        memory: ':memory:'
+        testing: 'testing.duckdb'
+
+  # Databases with docker images available
+  inttest_trino:
+    connection:
+      type: trino
+      host: localhost
+      port: 8080
+      user: admin
+      catalog: datalake
+      http_scheme: http
+      retries: 20
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+  inttest_trino_iceberg:
+    connection:
+      type: trino
+      host: localhost
+      port: 8080
+      user: admin
+      catalog: datalake_iceberg
+      http_scheme: http
+      retries: 20
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+  inttest_trino_delta:
+    connection:
+      type: trino
+      host: localhost
+      port: 8080
+      user: admin
+      catalog: datalake_delta
+      http_scheme: http
+      retries: 20
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+  inttest_spark:
+    connection:
+      type: spark
+      config:
+        spark.remote: sc://localhost
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+  inttest_mssql:
+    connection:
+      type: mssql
+      host: localhost
+      user: sa
+      password: 1StrongPwd@@
+  inttest_postgres:
+    connection:
+      type: postgres
+      user: postgres
+      password: postgres
+      database: postgres
+      host: localhost
+      port: 5432
+      concurrent_tasks: 1
+  inttest_mysql:
+    connection:
+      type: mysql
+      host: localhost
+      user: root
+      password: mysql
+      port: 3306
+      charset: utf8
+
+  # Cloud databases
+  inttest_snowflake:
+    connection:
+      type: snowflake
+      account: {{ env_var('SNOWFLAKE_ACCOUNT') }}
+      warehouse: {{ env_var('SNOWFLAKE_WAREHOUSE') }}
+      database: {{ env_var('SNOWFLAKE_DATABASE') }}
+      user: {{ env_var('SNOWFLAKE_USER') }}
+      password: {{ env_var('SNOWFLAKE_PASSWORD') }}
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+
+  inttest_databricks:
+    connection:
+      type: databricks
+      catalog: {{ env_var('DATABRICKS_CATALOG') }}
+      server_hostname: {{ env_var('DATABRICKS_SERVER_HOSTNAME') }}
+      http_path: {{ env_var('DATABRICKS_HTTP_PATH') }}
+      access_token: {{ env_var('DATABRICKS_ACCESS_TOKEN') }}
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+
+  inttest_redshift:
+    connection:
+      type: redshift
+      host: {{ env_var('REDSHIFT_HOST') }}
+      user: {{ env_var('REDSHIFT_USER') }}
+      password: {{ env_var('REDSHIFT_PASSWORD') }}
+      database: {{ env_var('REDSHIFT_DATABASE') }}
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+
+  inttest_bigquery:
+    connection:
+      type: bigquery
+      method: service-account
+      keyfile: {{ env_var('BIGQUERY_KEYFILE') }}
+      concurrent_tasks: 1
+    state_connection:
+      type: duckdb
+
+model_defaults:
+    dialect: duckdb
