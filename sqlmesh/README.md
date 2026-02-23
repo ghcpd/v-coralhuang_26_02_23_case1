@@ -29,6 +29,28 @@ Install SQLMesh through [pypi](https://pypi.org/project/sqlmesh/) by running:
 
 Follow the [tutorial](https://sqlmesh.readthedocs.io/en/stable/quick_start/) to learn how to use SQLMesh.
 
+
+## Seed CSV Column Name Notes
+
+When using **`SEED` models** with the Postgres dialect, SQLMesh now handles
+column names in a way that mirrors how Postgres treats quoted identifiers:
+
+* Headers are read literally from the CSV file and normally normalized using
+  the dialect's unquoted rules (lowercased for Postgres).  This preserves the
+  behaviour existing projects rely on when no `columns(...)` block is
+  specified.
+* If a model explicitly declares a column with quotes (e.g. ``"camelCase"``),
+  the renderer will look for the header using the **exact** case provided in
+  the CSV.  This prevents ``KeyError``s when the header was `camelCase` but the
+  normalized dataframe contained `camelcase`.
+* Undeclared columns remain subject to the usual unquoted normalization, which
+  means they will appear lowercased in the resulting `DataFrame`.
+
+If you relied on the previous behaviour of always lowercasing headers under
+Postgres, the only compatibility impact is that quoted column names will now
+be preserved.  Unquoted columns continue to be normalized, so most existing
+projects will be unaffected.
+
 ## Join our community
 We'd love to join you on your data journey. Connect with us in the following ways:
 

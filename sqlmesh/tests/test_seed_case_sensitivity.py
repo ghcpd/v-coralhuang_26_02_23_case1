@@ -80,6 +80,12 @@ def test_seed_case_sensitive_columns_postgres(tmp_path):
     assert "normalisedcasedate" in df.columns
     assert df["normalisedcasedate"].iloc[0] == "2022-01-01"
 
+    # column_hashes are computed on the final, aligned names as well
+    hashes = model.column_hashes
+    assert "camelCaseId" in hashes
+    assert "camelCaseTimestamp" in hashes
+    assert "normalisedcasedate" in hashes
+
 
 def test_seed_case_sensitive_partial_columns(tmp_path):
     """Test declared and undeclared columns with case sensitivity."""
