@@ -17,6 +17,7 @@ from sqlglot import diff, exp
 from sqlglot.diff import Insert, Keep
 from sqlglot.helper import ensure_list
 from sqlglot.optimizer.simplify import gen
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 from sqlglot.schema import MappingSchema, nested_set
 from sqlglot.time import format_time
 
@@ -1281,6 +1282,9 @@ class SeedModel(_SqlBasedModel):
                 string_columns.append(name)
 
         for df in self._reader.read(batch_size=self.kind.batch_size):
+            # Align DataFrame columns with declared model columns while respecting dialect rules
+            df = self._align_seed_df_columns(df)
+
             # convert all date/time types to native pandas timestamp
             for column in [*date_columns, *datetime_columns]:
                 df[column] = pd.to_datetime(df[column])
@@ -1297,6 +1301,46 @@ class SeedModel(_SqlBasedModel):
                 other=df[string_columns].astype(str),  # type: ignore
             )
             yield df.replace({np.nan: None})
+
+    def _align_seed_df_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Aligns the seed DataFrame's columns with the model's declared columns while respecting dialect rules.
+
+        - Postgres (and many dialects) fold unquoted identifiers, so we normalize declared names to find
+          their normalized counterparts in the DataFrame and then rename them back to the declared form
+          (preserving case for quoted identifiers).
+        - Undeclared columns are left as-is (and remain normalized as produced by the CSV reader).
+        """
+
+        if not self.columns_to_types_:
+            return df
+
+        rename_map: t.Dict[str, str] = {}
+        # Use stringified column names to be safe
+        df_columns = [str(col) for col in df.columns]
+        df_columns_set = set(df_columns)
+        # Case-insensitive fallback mapping
+        df_lower_to_actual = {col.lower(): col for col in df_columns}
+
+        for declared_name in self.columns_to_types_.keys():
+            # If already present, nothing to do
+            if declared_name in df_columns_set:
+                continue
+
+            normalized_declared = normalize_identifiers(declared_name, dialect=self.dialect).name
+            if normalized_declared in df_columns_set:
+                rename_map[normalized_declared] = declared_name
+                continue
+
+            # Fallback: case-insensitive match if normalization behaves differently
+            lower_declared = declared_name.lower()
+            if lower_declared in df_lower_to_actual:
+                rename_map[df_lower_to_actual[lower_declared]] = declared_name
+
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        return df
 
     @property
     def columns_to_types(self) -> t.Optional[t.Dict[str, exp.DataType]]:
