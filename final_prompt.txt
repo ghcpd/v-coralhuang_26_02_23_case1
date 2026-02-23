@@ -1,0 +1,8 @@
+Problem description: When SQLMesh renders a SEED (CSV) model, it lowercases/normalizes the CSV header column names. However, in the Postgres dialect, quoted identifiers are case-sensitive. As a result, if the seed model’s `columns(...)` uses a quoted camelCase column name like `"camelCaseColumn"` while the CSV header is `camelCaseColumn`, the DataFrame column names won’t match the model declaration. During `sqlmesh plan`, `render_seed` uses pandas to select/mask columns by name and raises `KeyError: None of ['camelCaseColumn'] are in the [columns]`.
+
+Requirements:
+
+1. Fix the bug: under the Postgres dialect, quoted column names in `columns(...)` must correctly match the CSV header so the KeyError no longer occurs.
+2. Run tests locally and make all existing failing tests pass (implement the fix in the codebase).
+3. Do not add new test scripts/files: only modify existing source code and existing tests (only if truly necessary).
+4. Update the README: briefly document the case/quoting rules for Seed CSV column names vs `columns(...)` under Postgres; if behavior changes, describe any compatibility impact.

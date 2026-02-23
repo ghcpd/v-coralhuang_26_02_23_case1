@@ -1404,7 +1404,19 @@ class SeedModel(_SqlBasedModel):
 
     @cached_property
     def _reader(self) -> CsvSeedReader:
-        return self.seed.reader(dialect=self.dialect, settings=self.kind.csv_settings)
+        # Pass declared columns (if provided) so the reader can preserve casing for
+        # quoted identifiers in case-sensitive dialects like Postgres.
+        declared_columns: t.Optional[t.Iterable[str]] = None
+        if self.columns_to_types_ is not None:
+            declared_columns = self.columns_to_types_.keys()
+        elif self.derived_columns_to_types is not None:
+            declared_columns = self.derived_columns_to_types.keys()
+
+        return self.seed.reader(
+            dialect=self.dialect,
+            settings=self.kind.csv_settings,
+            declared_columns=declared_columns,
+        )
 
     @property
     def _data_hash_values(self) -> t.List[str]:
