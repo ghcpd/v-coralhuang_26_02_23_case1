@@ -81,6 +81,60 @@ This is useful when you want to keep all seed CSV files in a top-level directory
 
 SQLMesh expects seed files to be encoded according to the [UTF-8](https://en.wikipedia.org/wiki/UTF-8) standard. Using a different encoding may lead to unexpected behavior.
 
+### Column naming and case sensitivity
+
+When working with seed models, it's important to understand how column names from the CSV file are matched with column declarations in the `MODEL` definition, especially when using dialects that support case-sensitive identifiers (like Postgres).
+
+#### Postgres and quoted identifiers
+
+In Postgres and similar dialects, identifier quoting behavior follows these rules:
+
+* **Quoted identifiers** (e.g., `"camelCaseColumn"`) are case-sensitive and preserve their exact case
+* **Unquoted identifiers** (e.g., `camelCaseColumn`) are normalized to lowercase (e.g., `camelcasecolumn`)
+
+SQLMesh matches CSV column names to declared columns as follows:
+
+1. If a CSV column name **exactly matches** a declared column name (including case), the declared column name is used in the resulting table
+2. If no exact match is found, the CSV column name is normalized according to the dialect's rules (e.g., lowercased for Postgres)
+
+**Example:**
+
+For a CSV file with the header:
+```csv
+userId,userName,CreateDate
+1,Alice,2023-01-01
+```
+
+And a model definition:
+```sql
+MODEL (
+  name test_db.users,
+  dialect postgres,
+  kind SEED (
+    path 'users.csv'
+  ),
+  columns (
+    "userId" INT,
+    "userName" TEXT
+  )
+);
+```
+
+The resulting table will have columns:
+* `userId` (case preserved, matches declared `"userId"`)
+* `userName` (case preserved, matches declared `"userName"`)  
+* `createdate` (normalized to lowercase, not declared)
+
+**Important:** Ensure that CSV column names match the **unquoted** form of your declared column names. For example, if you declare `"userId"` in the model, the CSV header should be `userId` (not `USERID` or `userid`), so the exact match is found.
+
+#### Backward compatibility
+
+This behavior change was introduced to properly support case-sensitive identifiers in Postgres and other dialects. Previously, all CSV column names were normalized regardless of declaration, which caused errors when using quoted (case-sensitive) column names in the model definition.
+
+If your existing seed models:
+* Use only lowercase column names in both CSV files and declarations, no changes are needed  
+* Use unquoted mixed-case declarations (which normalize to lowercase in Postgres), ensure your CSV headers match the normalized form or update your declarations to use quoted identifiers
+
 ## Example
 
 In this example, we use the model definition from the previous section saved in the `models/national_holidays.sql` file of the SQLMesh project.
