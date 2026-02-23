@@ -22,6 +22,12 @@ Although SQLMesh will make your dbt projects more efficient, reliable, and maint
 
 For more information, check out the [website](https://sqlmesh.com) and [documentation](https://sqlmesh.readthedocs.io/en/stable/).
 
+## 🔤 Seed CSV column casing (Postgres)
+> Postgres treats quoted identifiers as case-sensitive. Seed CSV headers are not quoted, so SQLMesh normalizes **unquoted** columns to the dialect’s default (lowercase for Postgres) but now preserves the casing of any **quoted** columns declared via `columns(...)`.
+* ✅ Quoted columns stay as-declared (e.g., `"camelCaseId"` → column name `camelCaseId`). Ensure the CSV header matches the quoted spelling exactly.
+* ✅ Unquoted columns are normalized (e.g., `normalisedCaseDate` → `normalisedcasedate`).
+* 🔁 Compatibility note: previously all headers were normalized. If you relied on lowercasing of quoted identifiers, adjust your CSV headers or remove the quotes from `columns(...)`.
+
 ## Getting Started
 Install SQLMesh through [pypi](https://pypi.org/project/sqlmesh/) by running:
 

@@ -48,10 +48,29 @@ class CsvSettings(PydanticModel):
 
 
 class CsvSeedReader:
-    def __init__(self, content: str, dialect: str, settings: CsvSettings):
+    def __init__(
+        self,
+        content: str,
+        dialect: str,
+        settings: CsvSettings,
+        declared_columns: t.Optional[t.Iterable[str]] = None,
+    ):
+        """
+        Csv seed reader that can optionally align CSV headers with declared columns.
+
+        For dialects like Postgres, quoted identifiers are case-sensitive. The CSV headers
+        are not quoted, so we need to preserve the header casing for any quoted columns
+        declared in the model while still normalizing unquoted identifiers. To achieve
+        this we accept the declared column names (as provided by the model definition)
+        and use them to drive the renaming logic.
+        """
+
         self.content = content
         self.dialect = dialect
         self.settings = settings
+        # Preserve the raw declared column names (i.e., as specified in columns(...)).
+        # We store them as a set for quick lookup. Empty set means "no declared columns".
+        self._declared_columns: t.Set[str] = set(declared_columns or [])
         self._df: t.Optional[pd.DataFrame] = None
 
     @property
@@ -75,6 +94,41 @@ class CsvSeedReader:
             yield df.iloc[batch_start : batch_start + batch_size, :]
             batch_start += batch_size
 
+    def _normalized_declared_lookup(self) -> t.Dict[str, str]:
+        """
+        Builds a map of normalized declared column names -> declared names.
+
+        If a declared column was quoted (e.g., "CamelCase"), the normalized name produced by
+        sqlglot will still be "CamelCase". For unquoted identifiers the normalized name will
+        be folded according to the dialect (lower-case for Postgres).
+        """
+
+        declared_lookup: t.Dict[str, str] = {}
+        for declared in self._declared_columns:
+            normalized = normalize_identifiers(declared, dialect=self.dialect).name
+            declared_lookup[normalized] = declared
+        return declared_lookup
+
+    def _build_column_mapping(self, original_columns: t.Iterable[str]) -> t.Dict[str, str]:
+        """
+        Given original CSV headers, decide their final DataFrame column names.
+
+        - Default: normalize headers using sqlglot (current behavior)
+        - If a normalized header matches a declared column, rename to the declared column
+          name to preserve casing for quoted identifiers (Postgres case sensitivity)
+        """
+
+        declared_lookup = self._normalized_declared_lookup()
+        mapping: t.Dict[str, str] = {}
+
+        for col in original_columns:
+            normalized = normalize_identifiers(col, dialect=self.dialect).name
+            # If the normalized header matches a declared column, use the declared
+            # casing (preserves quoted identifiers). Otherwise keep the normalized form.
+            mapping[col] = declared_lookup.get(normalized, normalized)
+
+        return mapping
+
     def _get_df(self) -> pd.DataFrame:
         if self._df is None:
             self._df = pd.read_csv(
@@ -84,12 +138,12 @@ class CsvSeedReader:
                 low_memory=False,
                 **{k: v for k, v in self.settings.dict().items() if v is not None},
             )
-            self._df = self._df.rename(
-                columns={
-                    col: normalize_identifiers(col, dialect=self.dialect).name
-                    for col in self._df.columns
-                },
-            )
+
+            # IMPORTANT: we normalize headers, but if a normalized header matches a declared
+            # column, we rename to the declared column name to preserve casing for quoted
+            # identifiers (e.g., Postgres).
+            mapping = self._build_column_mapping(self._df.columns)
+            self._df = self._df.rename(columns=mapping)
 
         return self._df
 
@@ -102,8 +156,18 @@ class Seed(PydanticModel):
 
     content: str
 
-    def reader(self, dialect: str = "", settings: t.Optional[CsvSettings] = None) -> CsvSeedReader:
-        return CsvSeedReader(self.content, dialect, settings or CsvSettings())
+    def reader(
+        self,
+        dialect: str = "",
+        settings: t.Optional[CsvSettings] = None,
+        declared_columns: t.Optional[t.Iterable[str]] = None,
+    ) -> CsvSeedReader:
+        return CsvSeedReader(
+            self.content,
+            dialect,
+            settings or CsvSettings(),
+            declared_columns=declared_columns,
+        )
 
 
 def create_seed(path: str | Path) -> Seed:
