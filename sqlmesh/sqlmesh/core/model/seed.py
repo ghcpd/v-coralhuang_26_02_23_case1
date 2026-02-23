@@ -48,10 +48,17 @@ class CsvSettings(PydanticModel):
 
 
 class CsvSeedReader:
-    def __init__(self, content: str, dialect: str, settings: CsvSettings):
+    def __init__(
+        self,
+        content: str,
+        dialect: str,
+        settings: CsvSettings,
+        declared_columns: t.Optional[t.Set[str]] = None,
+    ):
         self.content = content
         self.dialect = dialect
         self.settings = settings
+        self.declared_columns = declared_columns or set()
         self._df: t.Optional[pd.DataFrame] = None
 
     @property
@@ -84,12 +91,19 @@ class CsvSeedReader:
                 low_memory=False,
                 **{k: v for k, v in self.settings.dict().items() if v is not None},
             )
-            self._df = self._df.rename(
-                columns={
-                    col: normalize_identifiers(col, dialect=self.dialect).name
-                    for col in self._df.columns
-                },
-            )
+            # For each CSV column, check if it matches a declared column name.
+            # If yes, use the declared name (which preserves quoting/case sensitivity).
+            # Otherwise, normalize it as an unquoted identifier.
+            new_column_names = {}
+            for col in self._df.columns:
+                # Check if this CSV column matches any declared column (exact match)
+                if col in self.declared_columns:
+                    new_column_names[col] = col
+                else:
+                    # No exact match, normalize as unquoted identifier
+                    new_column_names[col] = normalize_identifiers(col, dialect=self.dialect).name
+            
+            self._df = self._df.rename(columns=new_column_names)
 
         return self._df
 
@@ -102,8 +116,15 @@ class Seed(PydanticModel):
 
     content: str
 
-    def reader(self, dialect: str = "", settings: t.Optional[CsvSettings] = None) -> CsvSeedReader:
-        return CsvSeedReader(self.content, dialect, settings or CsvSettings())
+    def reader(
+        self,
+        dialect: str = "",
+        settings: t.Optional[CsvSettings] = None,
+        declared_columns: t.Optional[t.Set[str]] = None,
+    ) -> CsvSeedReader:
+        return CsvSeedReader(
+            self.content, dialect, settings or CsvSettings(), declared_columns
+        )
 
 
 def create_seed(path: str | Path) -> Seed:
