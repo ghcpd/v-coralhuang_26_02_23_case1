@@ -155,6 +155,43 @@ All model batches have been executed successfully
 test_db.national_holidays ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100.0% • 1/1 • 0:00:00
 ```
 
+## Column name case sensitivity
+
+SQLMesh handles CSV column names according to SQL dialect-specific rules for identifier normalization. Understanding these rules is important when defining the `columns(...)` clause to avoid `KeyError` when rendering seeds.
+
+### Case sensitivity rules by dialect
+
+**Postgres and other case-sensitive dialects:**
+
+- **Quoted column names** (e.g., `"camelCaseId"`) are treated as case-sensitive identifiers. The CSV header must match the quoted name **exactly**, preserving case.
+- **Unquoted column names** (e.g., `id`, `UPPERCASE`) are normalized to lowercase. The CSV header will be matched case-insensitively.
+
+**Example:**
+
+```sql
+MODEL (
+  name my_db.products,
+  kind SEED (path 'products.csv'),
+  columns (
+    "productId" int,      -- CSV must have: productId (exact case match)
+    "productName" text,   -- CSV must have: productName (exact case match)
+    category text,        -- CSV can have: category, CATEGORY, Category (case-insensitive)
+    price float           -- CSV can have: price, PRICE, Price (case-insensitive)
+  )
+);
+```
+
+If the CSV file has headers like `productId,productName,CATEGORY,PRICE`, SQLMesh will correctly match them to the quoted and unquoted column definitions above.
+
+### Compatibility considerations
+
+Prior to the fix for case-sensitive seed columns, all CSV headers were normalized to lowercase regardless of quoting. If you have existing seed models with quoted column names, you may need to:
+
+1. Ensure your CSV headers match the case specified in quoted column definitions
+2. Or, update your model definition to use unquoted column names (which will be normalized to lowercase to match existing CSV headers)
+
+```
+
 ## Pre- and post-statements
 
 Seed models also support pre- and post-statements, which are evaluated before inserting the seed's content and after, respectively.
