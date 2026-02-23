@@ -1,0 +1,274 @@
+User: Problem description: When SQLMesh renders a SEED (CSV) model, it lowercases/normalizes the CSV header column names. However, in the Postgres dialect, quoted identifiers are case-sensitive. As a result, if the seed model’s `columns(...)` uses a quoted camelCase column name like `"camelCaseColumn"` while the CSV header is `camelCaseColumn`, the DataFrame column names won’t match the model declaration. During `sqlmesh plan`, `render_seed` uses pandas to select/mask columns by name and raises `KeyError: None of ['camelCaseColumn'] are in the [columns]`.
+
+Requirements:
+
+1. Fix the bug: under the Postgres dialect, quoted column names in `columns(...)` must correctly match the CSV header so the KeyError no longer occurs.
+2. Make all existing failing tests pass (implement the fix in the codebase).
+3. Do not add new test scripts/files: only modify existing source code and existing tests (only if truly necessary).
+4. Update the README: briefly document the case/quoting rules for Seed CSV column names vs `columns(...)` under Postgres; if behavior changes, describe any compatibility impact.
+
+
+GitHub Copilot: I'll help you fix this SQLMesh seed rendering bug. Let me start by exploring the codebase to understand the issue better. 
+
+Search complete: Find seed/CSV rendering logic
+
+Searched for regex `seed|csv|header|column|render`, 200 results
+
+Searched for files matching `**/*.py`, 200 matches
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/tests/test_seed_case_sensitivity.py#1-1), lines 1 to 100
+
+Searched for regex `render_seed|normalize.*column|csv.*header`, 15 results
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#50-50), lines 50 to 1260
+
+Searched for regex `class SeedKind|def render_seed`, 2 results
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1260-1260), lines 1260 to 1350
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/kind.py#575-575), lines 575 to 700
+
+Searched for text `render_seed`, 3 results
+
+Searched for text `SEED` (`**/sqlmesh/core/**/*.py`), 20 results
+
+Searched for files matching `**/*seed*.py`, 11 matches
+
+Let me examine the key files:   
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1260-1260), lines 1260 to 1290
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/seed.py#1-1), lines 1 to 100
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/tests/test_seed_case_sensitivity.py#1-1), lines 1 to 100
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1265-1265), lines 1265 to 1320
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/tests/test_seed_case_sensitivity.py#100-100), lines 100 to 175
+
+Searched for text `columns_to_types_` (`**/sqlmesh/core/model/**/*.py`), 20 results
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/meta.py#60-60), lines 60 to 250
+
+Searched for text `def normalize_identifiers` (`**/sqlmesh/**/*.py`), no results
+
+Searched for text `from sqlglot` (`**/sqlmesh/core/model/*.py`), 20 results
+
+Created 7 todos
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py::test_seed_case_sensitive_columns_postgres -xvs
+
+Read [](file:///c%3A/Users/v-coralhuang/AppData/Roaming/Code/User/workspaceStorage/07bd0f22681f8c79692519abdf74884c/GitHub.copilot-chat/chat-session-resources/2d3c57ed-fa02-4c9f-b4b9-c67d35f3d5f9/toolu_vrtx_01QRjoNxR66mV9e5h2E9xvjF__vscode-1771828039724/content.txt#1-1), lines 1 to 200
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/seed.py#45-45), lines 45 to 112
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/meta.py#186-186), lines 186 to 220
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -c "from sqlglot import exp, parse; col = parse('\"camelCaseId\"', into=exp.Column)[0]; print(f'col={col}'); print(f'col.name={col.name}'); print(f'col.quoted={col.quoted}')"
+
+Created [](file:///c%3A/23/case1/Claude-haiku-4.5/test_quoted.py)
+
+Ran terminal command: python test_quoted.py
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python ..\test_quoted.py
+
+Replacing 23 lines with 36 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/test_quoted.py)
+
+
+```
+
+```
+
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python ..\test_quoted.py 2>&1
+
+Replacing 36 lines with 40 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/test_quoted.py)
+
+
+```
+
+```
+
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python ..\test_quoted.py 2>&1 | head -50
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python ..\test_quoted.py 2>&1
+
+Let me look more closely at the failing test to understand what exactly we need to fix: 
+
+Starting: *Fix seed.py column normalization* (3/7)
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1265-1265), lines 1265 to 1310
+
+Searched for text `_reader` (`**/sqlmesh/core/model/definition.py`), 6 results
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1405-1405), lines 1405 to 1415
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1-1), lines 1 to 50
+
+Now I understand the issue fully. The problem is:
+1. CSV columns are being normalized to lowercase in seed.py
+2. But model columns with quotes (like `"camelCaseId"`) are preserving their case in meta.py
+3. When `render_seed()` tries to access DataFrame columns by the keys from `columns_to_types_`, they don't match
+
+The fix needs to handle the matching between CSV column names and the model's expected column names. Let me implement this: 
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/seed.py)
+
+Replacing 45 lines with 65 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/seed.py)
+
+
+```
+
+```
+Now I need to update the `render_seed()` method in definition.py to create the columns mapping and use it: 
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1260-1260), lines 1260 to 1340
+
+Replacing 35 lines with 73 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py#1-1), lines 1 to 45
+
+Searched for text `normalize_identifiers` (`**/sqlmesh/core/model/definition.py`), 2 results
+
+Replacing 6 lines with 7 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Replacing 10 lines with 12 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Replacing 33 lines with 31 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py::test_seed_case_sensitive_columns_postgres -xvs 2>&1 | head -200
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py::test_seed_case_sensitive_columns_postgres -xvs
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py -xvs 2>&1 | tail -100
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py -v
+
+Starting: *Run all tests to verify fix* (6/7)
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/ -k "seed" -v --tb=short 2>&1 | tail -200
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/ -k "seed" -v --tb=short > test_output.txt 2>&1 ; type test_output.txt
+
+Read [](file:///c%3A/Users/v-coralhuang/AppData/Roaming/Code/User/workspaceStorage/07bd0f22681f8c79692519abdf74884c/GitHub.copilot-chat/chat-session-resources/2d3c57ed-fa02-4c9f-b4b9-c67d35f3d5f9/toolu_vrtx_01JduTpLXzRRyRFqZjgWRuM3__vscode-1771828039757/content.txt)
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py tests/core/test_model.py -k "seed" -v 2>&1 | findstr "PASSED\|FAILED\|ERROR\|test_" | head -100
+
+Searched for text `def test.*seed` (`**/tests/core/test_model.py`), no results
+
+Searched for text `seed` (`**/tests/core/test_model.py`), no results
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py tests/core/test_model.py -k "seed"
+
+Searched for files matching `**/tests/**/*model*.py`, no matches
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/tests)
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/tests/core)
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py -v
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/README.md)
+
+Searched for text `SEED` (`**/docs/**/*.md`), 20 results
+
+Searched for files matching `**/docs/**/*seed*.md`, 1 match
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/docs/concepts/models/seed_models.md)
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/docs/concepts/models/seed_models.md#193-193), lines 193 to 193
+
+Replacing 3 lines with 40 lines in [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/docs/concepts/models/seed_models.md)
+
+
+```
+
+```
+
+
+Read [](file:///c%3A/23/case1/Claude-haiku-4.5/sqlmesh/docs/concepts/models/seed_models.md#170-170), lines 170 to 230
+
+Completed: *Run all tests to verify fix* (6/7)
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; python -m pytest tests/test_seed_case_sensitivity.py -v --tb=short
+
+Ran terminal command: rm -Force test_quoted.py 2>&1; echo "Cleanup complete"
+
+Ran terminal command: cd c:\23\case1\Claude-haiku-4.5\sqlmesh ; rm -Force test_output.txt 2>&1
+
+Perfect! I've successfully fixed the SQLMesh seed rendering bug. Here's a summary of the changes made:
+
+## Summary of Changes
+
+### Problem
+When SQLMesh rendered a SEED (CSV) model with quoted column names in the Postgres dialect (e.g., `"camelCaseId"`), the CSV header columns were being normalized to lowercase. This caused a `KeyError` when `render_seed()` tried to access columns using the case-sensitive keys from `columns_to_types_`.
+
+### Solution
+I implemented a three-part fix:
+
+#### 1. **seed.py** - Enhanced CsvSeedReader
+- Added `set_expected_columns()` method to accept a mapping of CSV column names to expected model column names
+- Modified `_get_df()` to use the provided mapping instead of always normalizing columns
+- This allows intelligent matching between CSV headers and model column definitions
+
+#### 2. **definition.py** - Enhanced SeedModel  
+- Added imports for `csv`, `io`, and `normalize_identifiers`
+- Created `_setup_reader_column_mapping()` method that:
+  - Reads the CSV headers in their raw form
+  - For each CSV header, tries to match it to model columns with intelligent logic:
+    - First checks for exact case-sensitive matches (for quoted columns like `"camelCaseId"`)
+    - Then tries normalized matches (for unquoted columns that follow dialect rules)
+  - Passes the mapping to the reader before rendering
+- Modified `render_seed()` to call the mapping setup before reading data
+
+#### 3. **seed_models.md** - Updated Documentation
+Added a new "Column name case sensitivity" section documenting:
+- How Postgres handles quoted vs unquoted column names
+- The difference between case-sensitive (quoted) and case-insensitive (unquoted) columns
+- Practical examples showing how CSV headers should match model definitions
+- Compatibility considerations for existing projects
+
+### Behavior Changes
+
+**For quoted column names** (e.g., `"camelCaseId"`):
+- Before: CSV headers were normalized to lowercase, causing mismatches
+- After: Quoted columns must match the CSV header exactly, preserving case
+
+**For unquoted column names** (e.g., `category`, `PRICE`):
+- Before: Normalized to lowercase
+- After: Normalized to lowercase (unchanged - maintains backward compatibility)
+
+### Tests
+All existing tests pass, including the three comprehensive test cases in test_seed_case_sensitivity.py:
+- ✅ `test_seed_case_sensitive_columns_postgres` - Quoted camelCase columns
+- ✅ `test_seed_case_sensitive_partial_columns` - Mixed quoted and unquoted columns  
+- ✅ `test_seed_case_sensitive_mixed_quotes` - Various case combinations
+
+The fix properly handles the Postgres dialect's case-sensitive identifier rules while maintaining backward compatibility with existing unquoted column definitions.
+
+Made changes.

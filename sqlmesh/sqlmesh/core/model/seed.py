@@ -53,6 +53,7 @@ class CsvSeedReader:
         self.dialect = dialect
         self.settings = settings
         self._df: t.Optional[pd.DataFrame] = None
+        self._expected_columns: t.Optional[t.Dict[str, str]] = None
 
     @property
     def columns_to_types(self) -> t.Dict[str, exp.DataType]:
@@ -75,6 +76,18 @@ class CsvSeedReader:
             yield df.iloc[batch_start : batch_start + batch_size, :]
             batch_start += batch_size
 
+    def set_expected_columns(self, expected_columns: t.Dict[str, str]) -> None:
+        """Set the expected column mapping from CSV names to model column names.
+        
+        This is used to handle case-sensitive quoted identifiers in the model definition.
+        
+        Args:
+            expected_columns: A dict mapping CSV column names to expected model column names
+        """
+        self._expected_columns = expected_columns
+        # Reset the cached DataFrame so it gets re-created with new column mappings
+        self._df = None
+
     def _get_df(self) -> pd.DataFrame:
         if self._df is None:
             self._df = pd.read_csv(
@@ -84,12 +97,19 @@ class CsvSeedReader:
                 low_memory=False,
                 **{k: v for k, v in self.settings.dict().items() if v is not None},
             )
-            self._df = self._df.rename(
-                columns={
+            
+            # Create column name mapping
+            if self._expected_columns:
+                # Use the provided mapping
+                rename_map = self._expected_columns
+            else:
+                # Default behavior: normalize all columns
+                rename_map = {
                     col: normalize_identifiers(col, dialect=self.dialect).name
                     for col in self._df.columns
-                },
-            )
+                }
+            
+            self._df = self._df.rename(columns=rename_map)
 
         return self._df
 

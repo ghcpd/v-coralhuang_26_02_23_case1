@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import csv
+import io
 import json
 import logging
 import sys
@@ -16,6 +18,7 @@ from pydantic import Field
 from sqlglot import diff, exp
 from sqlglot.diff import Insert, Keep
 from sqlglot.helper import ensure_list
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
 from sqlglot.optimizer.simplify import gen
 from sqlglot.schema import MappingSchema, nested_set
 from sqlglot.time import format_time
@@ -1280,6 +1283,10 @@ class SeedModel(_SqlBasedModel):
             elif tpe.this in exp.DataType.TEXT_TYPES:
                 string_columns.append(name)
 
+        # If explicit columns are defined, set up the mapping between CSV headers and expected column names
+        if self.columns_to_types_:
+            self._setup_reader_column_mapping()
+
         for df in self._reader.read(batch_size=self.kind.batch_size):
             # convert all date/time types to native pandas timestamp
             for column in [*date_columns, *datetime_columns]:
@@ -1297,6 +1304,38 @@ class SeedModel(_SqlBasedModel):
                 other=df[string_columns].astype(str),  # type: ignore
             )
             yield df.replace({np.nan: None})
+
+    def _setup_reader_column_mapping(self) -> None:
+        """Set up the mapping between CSV column headers and model column names.
+        
+        This handles the case where model columns are quoted (case-sensitive) vs unquoted.
+        When columns are quoted in the model definition (like "camelCaseId"), their case
+        must be preserved. When they're unquoted, they follow the dialect's normalization rules.
+        """
+        # Get the raw CSV headers before any normalization
+        csv_content = io.StringIO(self.seed.content)
+        csv_reader = csv.reader(csv_content)
+        raw_headers = next(csv_reader)
+        
+        # Build a mapping from raw CSV headers to expected column names in columns_to_types_
+        mapping: t.Dict[str, str] = {}
+        expected_names = set(self.columns_to_types_.keys())
+        
+        for csv_col in raw_headers:
+            # First, try exact match (for quoted columns like "camelCaseId")
+            if csv_col in expected_names:
+                mapping[csv_col] = csv_col
+            else:
+                # Try normalized match (for unquoted columns)
+                normalized = normalize_identifiers(csv_col, dialect=self.dialect).name
+                if normalized in expected_names:
+                    mapping[csv_col] = normalized
+                else:
+                    # If no match found, keep the normalized version for unquoted columns
+                    # This handles columns that aren't explicitly in columns_to_types_
+                    mapping[csv_col] = normalized
+        
+        self._reader.set_expected_columns(mapping)
 
     @property
     def columns_to_types(self) -> t.Optional[t.Dict[str, exp.DataType]]:
