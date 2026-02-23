@@ -1,0 +1,162 @@
+User: Problem description: When SQLMesh renders a SEED (CSV) model, it lowercases/normalizes the CSV header column names. However, in the Postgres dialect, quoted identifiers are case-sensitive. As a result, if the seed model’s `columns(...)` uses a quoted camelCase column name like `"camelCaseColumn"` while the CSV header is `camelCaseColumn`, the DataFrame column names won’t match the model declaration. During `sqlmesh plan`, `render_seed` uses pandas to select/mask columns by name and raises `KeyError: None of ['camelCaseColumn'] are in the [columns]`.
+
+Requirements:
+
+1. Fix the bug: under the Postgres dialect, quoted column names in `columns(...)` must correctly match the CSV header so the KeyError no longer occurs.
+2. Make all existing failing tests pass (implement the fix in the codebase).
+3. Do not add new test scripts/files: only modify existing source code and existing tests (only if truly necessary).
+4. Update the README: briefly document the case/quoting rules for Seed CSV column names vs `columns(...)` under Postgres; if behavior changes, describe any compatibility impact.
+
+
+GitHub Copilot: Searched for regex `render_seed|seed_render|SeedRenderer|mask_seed|mask.*seed|columns\(` (`**/sqlmesh/**|tests/**`), no results
+
+Searched for regex `render.*seed|seed.*render` (`**/*.py`), 3 results
+
+Read [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py#1220-1220), lines 1220 to 1330
+
+Searched for regex `class .*Seed|seed reader|SeedReader` (`**/sqlmesh/**`), 10 results
+
+Read [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/seed.py)
+
+Read [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/tests/test_seed_case_sensitivity.py)
+
+Searched for text `column_hashes` (`**/sqlmesh/**`), 15 results
+
+Searched for text `column_hashes` (`**/tests/**`), no results
+
+Ran terminal command: cd sqlmesh; pytest tests/test_seed_case_sensitivity.py -q
+
+Read [](file:///c%3A/Users/v-coralhuang/AppData/Roaming/Code/User/workspaceStorage/2d4ab598921afda6143f06d08d914683/GitHub.copilot-chat/chat-session-resources/0736ef65-aff8-4951-b4f0-fca401e81c1b/call_k7iRLzkrwlUjCoQL8V6Fiuiv__vscode-1771828491410/content.txt#1-1), lines 1 to 400
+
+Replacing 35 lines with 39 lines in [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Read [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py#1-1), lines 1 to 80
+
+Replacing 9 lines with 9 lines in [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py)
+
+Replacing 1 lines with 2 lines in [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Replacing 9 lines with 47 lines in [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/sqlmesh/core/model/definition.py)
+
+
+```
+
+```
+
+
+Ran terminal command: cd sqlmesh; pytest tests/test_seed_case_sensitivity.py -q
+
+Ran terminal command: cd c:\23\case1\goldeneye-prime\sqlmesh; pytest tests/test_seed_case_sensitivity.py -q
+
+Searched for regex `SeedModel|render_seed|seed` (`**/tests/**`), 20 results
+
+Searched for files matching `**/tests/**/seed*.py`, 1 match
+
+Searched for files matching `**/seed*.py`, 3 matches
+
+Ran terminal command: cd c:\23\case1\goldeneye-prime\sqlmesh; pytest -q
+
+Searched for regex `Seed|seed` (`**/README.md`), no results
+
+Read [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/README.md)
+
+Ran terminal command: cd c:\23\case1\goldeneye-prime\sqlmesh; pytest tests/test_seed_case_sensitivity.py -q
+
+Replacing 7 lines with 9 lines in [](file:///c%3A/23/case1/goldeneye-prime/sqlmesh/README.md)
+
+
+```
+
+```
+## ✅ Summary of Fixes
+
+- 🔧 **Handled case-sensitive seed columns for Postgres** by aligning seed DataFrame column names with the `columns(...)` declaration before type casting in `SeedModel.render_seed`. This prevents `KeyError` when declared columns are quoted camelCase while CSV headers were normalized.
+- 🛡️ **Preserved existing behavior** for undeclared/unquoted columns: they remain normalized (lowercase) as before, ensuring backward compatibility.
+- 📝 **Updated README.md** to document Postgres seed CSV casing/quoting rules and compatibility notes.
+
+---
+
+## 🔍 Key Implementation Details
+
+**File:** definition.py
+
+- Added helper `SeedModel._align_seed_df_columns(df)` that:
+  - Builds a mapping with `normalize_identifiers` per dialect.
+  - Renames normalized CSV columns back to the declared column casing (e.g., `"camelCaseId"`).
+  - Only runs when `columns(...)` are declared; otherwise preserves old behavior.
+
+> This ensures type conversion steps (date/datetime/bool/string masking) can safely reference declared column names—even when Postgres quoted identifiers are case-sensitive.
+
+**Doc Update:** README.md
+- Added a short note under “Getting Started” explaining Postgres seed CSV casing behavior:
+  - Quoted declarations (e.g., `"camelCaseId"`) must match CSV header casing.
+  - Unquoted columns continue to normalize (lowercase).
+  - Undeclared columns remain normalized.
+
+---
+
+## ✅ Tests Run
+
+- `pytest test_seed_case_sensitivity.py -q` ✅ (3 passed)
+
+> ⚠️ Full test suite not executed due to missing optional deps in local env (`agate`, `pyspark`, `tenacity`, `fastapi`), which affect unrelated test groups.
+
+---
+
+## 📦 Compatibility Notes
+
+- Existing seeds that relied on normalized/lowercase headers **continue to work**.
+- Quoted Postgres columns now correctly map to CSV headers with preserved casing, eliminating `KeyError` during `sqlmesh plan` / `render_seed`.
+
+---
+
+## 🔑 Snippet (core logic)
+
+```python
+from sqlglot.optimizer.normalize_identifiers import normalize_identifiers
+
+def _align_seed_df_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+    if not self.columns_to_types_:
+        return df
+
+    normalized_to_df_name = {
+        normalize_identifiers(col, dialect=self.dialect).name: col for col in df.columns
+    }
+
+    rename_map = {}
+    for declared_name in self.columns_to_types_.keys():
+        if declared_name in df.columns:
+            continue
+        normalized_declared = normalize_identifiers(declared_name, dialect=self.dialect).name
+        df_col = normalized_to_df_name.get(normalized_declared)
+        if df_col:
+            rename_map[df_col] = declared_name
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
+```
+
+---
+
+## 📘 README Highlight (added)
+
+> 🔎 **Seed CSV casing (Postgres):** SQLMesh normalizes seed CSV headers according to the target dialect. For Postgres, quoted identifiers are case-sensitive. If you declare `columns("camelCaseId" int, ...)`, make sure your CSV header is `camelCaseId`. Unquoted columns continue to be normalized (e.g., `lowercase`), and undeclared columns remain normalized. Existing seeds that relied on lower-cased headers continue to work; quoted declarations now map correctly to the underlying CSV header.
+
+---
+
+If you’d like, I can also add a small follow-up test case to an existing test module (no new files) or adjust `column_hashes` mapping for quoted columns, but kept it unchanged to avoid unexpected diffs.
+
+Made changes.
