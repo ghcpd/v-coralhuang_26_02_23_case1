@@ -47,12 +47,65 @@ class CsvSettings(PydanticModel):
         return UNESCAPED_SEQUENCES.get(v, v)
 
 
+
+
+# Helper utilities ----------------------------------------------------------
+
+def _seed_column_mapping(
+    original_columns: t.List[str],
+    normalized_columns: t.List[str],
+    dialect: str,
+    model_columns: t.Optional[t.Set[str]] = None,
+) -> t.Dict[str, str]:
+    """Return a mapping of *normalized* column names to their desired final names.
+
+    The CSV reader initially normalizes every header using unquoted SQL identifier
+    rules (e.g. lowercasing for Postgres).  This routine takes the original header
+    value and the already-normalized value and decides how to rename it based on
+    the set of columns that the model declared.
+
+    Rules:
+      * If the model explicitly declares a column that matches the quoted form of
+        the original header, prefer that exact casing (quoted identifiers are
+        case-sensitive in Postgres).
+      * Otherwise, fall back to the unquoted normalization (this lowercases for
+        Postgres and is the behaviour prior to this bug fix).  Undeclared columns
+        are treated the same way as unquoted model columns.
+
+    The returned dictionary can be fed directly to ``DataFrame.rename`` or used
+    to rewrite column-hash keys.
+    """
+    mapping: t.Dict[str, str] = {}
+
+    # make a set for faster membership tests
+    model_cols = set(model_columns) if model_columns is not None else None
+
+    for orig, norm in zip(original_columns, normalized_columns):
+        # for Postgres, quoting preserves case; use normalize_identifiers on a
+        # quoted string to compute that form.
+        quoted_norm = normalize_identifiers(f'"{orig}"', dialect=dialect).name
+        unquoted_norm = norm
+
+        if model_cols is not None and quoted_norm in model_cols:
+            # user declared this column with explicit quotes; keep case exactly
+            mapping[norm] = quoted_norm
+        else:
+            # either the column is unquoted in the model or undeclared; use the
+            # unquoted normalization which matches previous behaviour
+            mapping[norm] = unquoted_norm
+    return mapping
+
+
 class CsvSeedReader:
-    def __init__(self, content: str, dialect: str, settings: CsvSettings):
+    def __init__(self, content: str, dialect: str, settings:CsvSettings):
         self.content = content
         self.dialect = dialect
         self.settings = settings
+        # raw dataframe read from CSV; headers may be normalized below
         self._df: t.Optional[pd.DataFrame] = None
+        # keep the original CSV header names so we can later reconcile
+        # against model declarations (for case-sensitive, quoted names)
+        self._original_columns: t.Optional[t.List[str]] = None
 
     @property
     def columns_to_types(self) -> t.Dict[str, exp.DataType]:
@@ -77,19 +130,28 @@ class CsvSeedReader:
 
     def _get_df(self) -> pd.DataFrame:
         if self._df is None:
-            self._df = pd.read_csv(
+            # read the file but keep headers exactly as they appear
+            df = pd.read_csv(
                 StringIO(self.content),
                 index_col=False,
                 on_bad_lines="error",
                 low_memory=False,
                 **{k: v for k, v in self.settings.dict().items() if v is not None},
             )
-            self._df = self._df.rename(
+            # stash the original header names for later use
+            self._original_columns = list(df.columns)
+            # normalize identifiers using unquoted semantics so downstream
+            # logic that doesn't know about quoted names continues to work as
+            # before (lowercase for postgres, etc).  We'll perform a second,
+            # context-aware pass in the model layer when rendering so that
+            # quoted columns can be restored.
+            df = df.rename(
                 columns={
                     col: normalize_identifiers(col, dialect=self.dialect).name
-                    for col in self._df.columns
+                    for col in df.columns
                 },
             )
+            self._df = df
 
         return self._df
 

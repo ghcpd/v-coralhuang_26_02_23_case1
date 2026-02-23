@@ -30,6 +30,7 @@ from sqlmesh.core.model.meta import ModelMeta, AuditReference
 from sqlmesh.core.model.seed import CsvSeedReader, Seed, create_seed
 from sqlmesh.core.renderer import ExpressionRenderer, QueryRenderer
 from sqlmesh.utils import columns_to_types_all_known, str_to_bool, UniqueKeyDict
+from sqlmesh.core.model.seed import _seed_column_mapping
 from sqlmesh.utils.date import TimeLike, make_inclusive, to_datetime, to_time_column
 from sqlmesh.utils.errors import ConfigError, SQLMeshError, raise_config_error
 from sqlmesh.utils.hashing import hash_data
@@ -1281,6 +1282,23 @@ class SeedModel(_SqlBasedModel):
                 string_columns.append(name)
 
         for df in self._reader.read(batch_size=self.kind.batch_size):
+            # when the reader normalized headers it only applied unquoted rules
+            # (lowercasing for Postgres).  if the model specified quoted column
+            # names we need to restore the correct casing so subsequent pandas
+            # operations succeed.  We also lowercase any undeclared columns to
+            # match previous behaviour.
+            if self.columns_to_types_ is not None:
+                orig_cols = getattr(self._reader, "_original_columns", []) or []
+                norm_cols = list(df.columns)
+                mapping = _seed_column_mapping(
+                    orig_cols,
+                    norm_cols,
+                    dialect=self.dialect,
+                    model_columns=set(self.columns_to_types_.keys()),
+                )
+                if mapping:
+                    df = df.rename(columns=mapping)
+
             # convert all date/time types to native pandas timestamp
             for column in [*date_columns, *datetime_columns]:
                 df[column] = pd.to_datetime(df[column])
@@ -1313,7 +1331,21 @@ class SeedModel(_SqlBasedModel):
         if self.column_hashes_ is not None:
             return self.column_hashes_
         self._ensure_hydrated()
-        return self._reader.column_hashes
+        hashes = self._reader.column_hashes
+        # align keys so they correspond to the names the model will actually
+        # use when rendering the seed (see render_seed above).
+        if self.columns_to_types_ is not None:
+            orig_cols = getattr(self._reader, "_original_columns", []) or []
+            norm_cols = list(hashes.keys())
+            mapping = _seed_column_mapping(
+                orig_cols,
+                norm_cols,
+                dialect=self.dialect,
+                model_columns=set(self.columns_to_types_.keys()),
+            )
+            if mapping:
+                hashes = {mapping.get(k, k): v for k, v in hashes.items()}
+        return hashes
 
     @property
     def is_seed(self) -> bool:
